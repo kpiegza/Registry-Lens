@@ -6,8 +6,7 @@ export default defineConfig({
   plugins: [vue()],
 
   // Base path for GitHub Pages
-  // Change 'registry-lens' to your repository name if different
-  base: process.env.NODE_ENV === 'production' ? '/registry-lens/' : '/',
+  base: process.env.NODE_ENV === 'production' ? '/Registry-Lens/' : '/',
 
   build: {
     // Output directory
