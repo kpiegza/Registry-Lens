@@ -5,6 +5,8 @@
  */
 
 import { credentialStore } from './credentialStore'
+import { ErrorHandler } from './errorHandler'
+import { FIXED_REGISTRY_URL, HAS_FIXED_REGISTRY } from '../config'
 
 const REQUEST_DELAY = 100 // ms between requests to avoid throttling
 
@@ -24,10 +26,13 @@ class RegistryApi {
     return this.credentials
   }
 
-  // Save credentials securely
+  // Save credentials securely. When VITE_REGISTRY_URL is set, the URL
+  // argument is ignored and the env-provided value is used — this is the
+  // tamper-proof bottleneck for the locked-URL mode.
   async saveCredentials(registryUrl, username, password) {
-    this.credentials = { registryUrl, username, password }
-    const result = await credentialStore.save(registryUrl, username, password)
+    const url = HAS_FIXED_REGISTRY ? FIXED_REGISTRY_URL : registryUrl
+    this.credentials = { registryUrl: url, username, password }
+    const result = await credentialStore.save(url, username, password)
     return result
   }
 
@@ -38,7 +43,12 @@ class RegistryApi {
   }
 
   getCredentials() {
-    return this.credentials || credentialStore.getSync()
+    const stored = this.credentials || credentialStore.getSync()
+    if (HAS_FIXED_REGISTRY) {
+      // Always force the env-provided URL — even if storage was tampered with.
+      return { ...(stored || {}), registryUrl: FIXED_REGISTRY_URL }
+    }
+    return stored
   }
 
   isAuthenticated() {
@@ -134,16 +144,30 @@ class RegistryApi {
 
     const url = this.getApiUrl(endpoint)
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      // For production, we need CORS mode
-      mode: isDev ? 'same-origin' : 'cors'
-    })
+    let response
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+        // For production, we need CORS mode
+        mode: isDev ? 'same-origin' : 'cors'
+      })
+    } catch (error) {
+      // Network errors, CORS errors, and other fetch failures
+      const errorInfo = ErrorHandler.getDisplayMessage(error, 'request')
+      const message = `${errorInfo.message}. ${errorInfo.suggestion}`
+      const err = new Error(message)
+      err.errorType = errorInfo.type
+      err.details = errorInfo.details
+      throw err
+    }
 
     if (!response.ok) {
       if (response.status === 401) {
         throw new Error('Authentication failed. Check your credentials.')
+      }
+      if (response.status === 403) {
+        throw new Error('Access denied. You do not have permission to access this registry.')
       }
       if (response.status === 404) {
         throw new Error('Resource not found')
@@ -178,7 +202,12 @@ class RegistryApi {
       await this.request('/')
       return { success: true }
     } catch (error) {
-      return { success: false, error: error.message }
+      return {
+        success: false,
+        error: error.message,
+        errorType: error.errorType,
+        details: error.details
+      }
     }
   }
 

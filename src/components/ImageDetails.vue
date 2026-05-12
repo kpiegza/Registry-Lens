@@ -1,312 +1,408 @@
 <template>
   <div class="image-details">
-    <!-- Tags Section -->
-    <div class="section">
-      <div class="section-header">
-        <h3>
-          <i class="pi pi-tags"></i>
-          Tags
-          <span class="tag-count">({{ tags.length }})</span>
-        </h3>
-      </div>
-
-      <!-- Tag filter -->
-      <div class="tag-filter" v-if="tags.length > 5">
-        <IconField>
-          <InputIcon class="pi pi-search" />
-          <InputText
-            v-model="tagFilter"
-            placeholder="Filter tags..."
-            size="small"
-          />
-        </IconField>
-      </div>
-
-      <!-- Loading tags -->
-      <div v-if="loadingTags" class="loading-inline">
-        <ProgressSpinner style="width: 20px; height: 20px" />
-        <span>Loading tags...</span>
-      </div>
-
-      <!-- Tags list -->
-      <div v-else-if="filteredTags.length" class="tags-container">
-        <div
-          v-for="tag in filteredTags"
-          :key="tag"
-          class="tag-item"
-          :class="{ selected: selectedTag === tag, loading: selectedTag === tag && loadingInfo }"
-          @click="selectTag(tag)"
-        >
-          <Tag :value="tag" :severity="tag === 'latest' ? 'success' : 'secondary'" />
-          <ProgressSpinner
-            v-if="selectedTag === tag && loadingInfo"
-            style="width: 16px; height: 16px"
-          />
-          <i v-else-if="failedTags.has(tag)" class="pi pi-exclamation-circle tag-error" v-tooltip="'Failed to load'"></i>
-          <i v-else-if="selectedTag === tag && imageInfo" class="pi pi-check-circle tag-loaded"></i>
-        </div>
-      </div>
-
-      <div v-else class="empty-state">
-        <i class="pi pi-inbox"></i>
-        <p v-if="tagFilter">No tags match "{{ tagFilter }}"</p>
-        <p v-else>No tags found</p>
-      </div>
+    <!-- Mobile topbar (fullscreen dialog) -->
+    <div class="topbar">
+      <button class="topbar-btn" @click="$emit('close')" aria-label="Close">
+        <i class="pi pi-arrow-left"></i>
+      </button>
+      <span class="topbar-title">{{ repository }}</span>
+      <button class="topbar-btn" aria-label="Close" @click="$emit('close')">
+        <i class="pi pi-times"></i>
+      </button>
     </div>
 
-    <!-- Image Info Section -->
-    <div class="section" v-if="selectedTag">
-      <!-- Loading state -->
-      <div v-if="loadingInfo" class="loading-section">
-        <ProgressSpinner style="width: 40px; height: 40px" />
-        <span>Loading image details...</span>
-      </div>
+    <!-- Desktop floating close (only ≥ 768px) -->
+    <button class="floating-close" @click="$emit('close')" aria-label="Close" v-tooltip.left="'Close'">
+      <i class="pi pi-times"></i>
+    </button>
 
-      <!-- Error state -->
-      <div v-else-if="loadError" class="error-section">
-        <Message severity="error" :closable="false" class="error-message">
-          <template #icon>
-            <i class="pi pi-times-circle"></i>
-          </template>
-          <div class="error-content">
-            <strong>Failed to load image details</strong>
-            <p>{{ loadError }}</p>
-            <div class="error-actions">
-              <Button
-                label="Retry"
-                icon="pi pi-refresh"
-                size="small"
-                @click="retryLoadInfo"
-              />
-            </div>
-          </div>
-        </Message>
-      </div>
-
-      <!-- Image info loaded -->
-      <div v-else-if="imageInfo" class="image-info">
-        <!-- Key Metrics Row -->
-        <div class="metrics-row">
-          <div class="metric">
-            <i class="pi pi-database"></i>
-            <div class="metric-content">
-              <span class="metric-value">{{ formatSize(imageInfo.totalSize) }}</span>
-              <span class="metric-label">Total Size</span>
-            </div>
-          </div>
-
-          <div class="metric" v-if="imageInfo.manifest.layers">
-            <i class="pi pi-bars"></i>
-            <div class="metric-content">
-              <span class="metric-value">{{ imageInfo.manifest.layers.length }}</span>
-              <span class="metric-label">Layers</span>
-            </div>
-          </div>
-
-          <div class="metric" v-if="getValidPlatforms(imageInfo.platforms).length">
-            <i class="pi pi-microchip"></i>
-            <div class="metric-content">
-              <span class="metric-value">{{ getValidPlatforms(imageInfo.platforms).length }}</span>
-              <span class="metric-label">{{ getValidPlatforms(imageInfo.platforms).length > 1 ? 'Platforms' : 'Platform' }}</span>
-            </div>
-          </div>
-
-          <div class="metric" v-if="imageInfo.created">
-            <i class="pi pi-calendar"></i>
-            <div class="metric-content">
-              <span class="metric-value">{{ formatRelativeTime(imageInfo.created) }}</span>
-              <span class="metric-label">{{ formatDate(imageInfo.created) }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Platforms Section -->
-        <div v-if="getValidPlatforms(imageInfo.platforms).length" class="platforms-section">
-          <div class="platforms-header">
-            <i class="pi pi-microchip"></i>
-            <span>Available Platforms</span>
-            <Tag v-if="imageInfo.isMultiPlatform" value="Multi-arch" severity="info" class="multi-arch-badge" />
-          </div>
-          <div class="platforms-list">
-            <div
-              v-for="platform in getValidPlatforms(imageInfo.platforms)"
-              :key="platform.digest || `${platform.os}-${platform.architecture}`"
-              class="platform-chip"
-            >
-              <span class="platform-name">{{ formatPlatform(platform) }}</span>
-              <span v-if="platform.size" class="platform-size">{{ formatSize(platform.size) }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Details Panel -->
-        <Panel header="Manifest Details" toggleable :collapsed="false" class="details-panel">
-          <div class="details-grid">
-            <div class="detail-item">
-              <span class="detail-label">Schema Version</span>
-              <span class="detail-value">{{ imageInfo.manifest.schemaVersion }}</span>
-            </div>
-
-            <div class="detail-item" v-if="imageInfo.manifest.mediaType">
-              <span class="detail-label">Media Type</span>
-              <span class="detail-value">{{ formatMediaType(imageInfo.manifest.mediaType) }}</span>
-            </div>
-
-            <div class="detail-item" v-if="imageInfo.dockerVersion">
-              <span class="detail-label">Docker Version</span>
-              <span class="detail-value">{{ imageInfo.dockerVersion }}</span>
-            </div>
-
-            <div class="detail-item full-width" v-if="imageInfo.manifest.config">
-              <span class="detail-label">Config Digest</span>
-              <code class="detail-value digest">{{ imageInfo.manifest.config.digest }}</code>
-            </div>
-          </div>
-        </Panel>
-
-        <!-- Layers Panel -->
-        <Panel
-          v-if="imageInfo.manifest.layers"
-          header="Image Layers"
-          toggleable
-          :collapsed="false"
-          class="layers-panel"
-        >
-          <div class="layers-list">
-            <div
-              v-for="(layer, index) in imageInfo.manifest.layers"
-              :key="layer.digest"
-              class="layer-item"
-            >
-              <div class="layer-index">{{ index + 1 }}</div>
-              <div class="layer-info">
-                <div class="layer-size">{{ formatSize(layer.size) }}</div>
-                <div class="layer-type">{{ formatLayerType(layer.mediaType) }}</div>
-              </div>
-              <div class="layer-digest">
-                <code>{{ shortenDigest(layer.digest) }}</code>
-                <Button
-                  icon="pi pi-copy"
-                  text
-                  rounded
-                  size="small"
-                  @click="copyToClipboard(layer.digest)"
-                  v-tooltip.left="'Copy digest'"
-                  class="copy-btn"
-                />
-              </div>
-              <div class="layer-bar">
-                <div
-                  class="layer-bar-fill"
-                  :style="{ width: getLayerPercentage(layer.size) + '%' }"
-                ></div>
-              </div>
-            </div>
-          </div>
-        </Panel>
-
-        <!-- Raw Data Panel -->
-        <Panel header="Raw Data" toggleable :collapsed="true" class="raw-panel">
-          <TabView>
-            <TabPanel header="Manifest">
-              <pre class="raw-json">{{ JSON.stringify(imageInfo.manifest, null, 2) }}</pre>
-            </TabPanel>
-            <TabPanel header="Config" v-if="imageInfo.config">
-              <pre class="raw-json">{{ JSON.stringify(imageInfo.config, null, 2) }}</pre>
-            </TabPanel>
-          </TabView>
-        </Panel>
-      </div>
-
-      <!-- No data yet -->
-      <div v-else class="no-data">
-        <i class="pi pi-info-circle"></i>
-        <p>Select a tag to view image details</p>
-      </div>
+    <!-- Head -->
+    <div class="detail-head">
+      <p class="breadcrumb">
+        <span>{{ registryHost || 'registry' }}</span>
+        <span class="sep">/</span>
+        <b>{{ repository }}</b>
+      </p>
+      <h2>{{ repository }}</h2>
+      <p class="desc">
+        Inspect tags, manifest layers, platforms and pull command for this image.
+      </p>
     </div>
 
     <!-- Pull command -->
-    <div class="section pull-section">
-      <div class="pull-header">
-        <i class="pi pi-download"></i>
-        <span>Pull Command</span>
+    <div class="pullcmd">
+      <div class="cmd">
+        <span class="prompt">$</span>docker pull {{ pullCommand }}
       </div>
-      <div class="pull-command">
-        <code>docker pull {{ pullCommand }}</code>
-        <Button
-          icon="pi pi-copy"
-          text
-          rounded
-          @click="copyPullCommand"
-          v-tooltip="'Copy to clipboard'"
-        />
+      <button class="copy-btn" @click="copyPullCommand" :aria-label="copied ? 'Copied!' : 'Copy pull command'">
+        <i :class="copied ? 'pi pi-check' : 'pi pi-copy'"></i>
+      </button>
+    </div>
+
+    <!-- Stats grid -->
+    <div class="stats">
+      <div class="stat">
+        <div class="k">Latest tag</div>
+        <div class="v">{{ latestTagLabel }}</div>
       </div>
+      <div class="stat">
+        <div class="k">Total tags</div>
+        <div class="v">{{ tags.length }}</div>
+      </div>
+      <div class="stat">
+        <div class="k">Layers</div>
+        <div class="v">{{ layerCount }}</div>
+      </div>
+      <div class="stat">
+        <div class="k">Compressed</div>
+        <div class="v">
+          {{ totalSizeNumber }}
+          <small v-if="totalSizeUnit">{{ totalSizeUnit }}</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Segmented tabs -->
+    <nav class="seg">
+      <button
+        class="seg-tab"
+        :class="{ active: activeTab === 'overview' }"
+        @click="activeTab = 'overview'"
+      >
+        Overview
+      </button>
+      <button
+        class="seg-tab"
+        :class="{ active: activeTab === 'tags' }"
+        @click="activeTab = 'tags'"
+      >
+        Tags <span class="badge">{{ tags.length }}</span>
+      </button>
+      <button
+        class="seg-tab"
+        :class="{ active: activeTab === 'layers' }"
+        @click="activeTab = 'layers'"
+        :disabled="!imageInfo?.manifest?.layers"
+      >
+        Layers
+      </button>
+    </nav>
+
+    <!-- Tab content -->
+    <div class="tab-content">
+      <!-- OVERVIEW -->
+      <section v-if="activeTab === 'overview'" class="overview">
+        <div v-if="loadingTags || (selectedTag && loadingInfo && !imageInfo)" class="loading-inline">
+          <ProgressSpinner strokeWidth="3" style="width: 22px; height: 22px;" />
+          <span>Loading image details…</span>
+        </div>
+
+        <div v-else-if="loadError" class="alert alert-error">
+          <i class="pi pi-exclamation-circle"></i>
+          <div class="alert-body">
+            <strong>Failed to load image details</strong>
+            <p>{{ loadError }}</p>
+            <button class="btn-ghost small" @click="retryLoadInfo">
+              <i class="pi pi-refresh"></i> Retry
+            </button>
+          </div>
+        </div>
+
+        <template v-else-if="imageInfo">
+          <!-- Platforms -->
+          <div v-if="validPlatforms.length" class="info-card">
+            <div class="info-card-head">
+              <i class="pi pi-microchip"></i>
+              <span>Available platforms</span>
+              <span v-if="imageInfo.isMultiPlatform" class="pill" style="margin-left:auto;">multi-arch</span>
+            </div>
+            <div class="platforms-list">
+              <span
+                v-for="platform in validPlatforms"
+                :key="platform.digest || `${platform.os}-${platform.architecture}`"
+                class="pill"
+              >
+                <span class="mono">{{ formatPlatform(platform) }}</span>
+                <span v-if="platform.size" class="platform-size">{{ formatSize(platform.size) }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Manifest details -->
+          <div class="info-card">
+            <div class="info-card-head">
+              <i class="pi pi-file"></i>
+              <span>Manifest details</span>
+            </div>
+            <div class="kv-grid">
+              <div class="kv">
+                <b>Schema version</b>
+                <span>{{ imageInfo.manifest.schemaVersion }}</span>
+              </div>
+              <div v-if="imageInfo.manifest.mediaType" class="kv">
+                <b>Media type</b>
+                <span class="mono">{{ formatMediaType(imageInfo.manifest.mediaType) }}</span>
+              </div>
+              <div v-if="imageInfo.dockerVersion" class="kv">
+                <b>Docker version</b>
+                <span>{{ imageInfo.dockerVersion }}</span>
+              </div>
+              <div v-if="imageInfo.created" class="kv">
+                <b>Created</b>
+                <span>{{ formatRelativeTime(imageInfo.created) }}</span>
+              </div>
+              <div v-if="imageInfo.manifest.config" class="kv full">
+                <b>Config digest</b>
+                <span class="digest mono">{{ imageInfo.manifest.config.digest }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Raw JSON (collapsible) -->
+          <details class="info-card raw-card">
+            <summary>
+              <i class="pi pi-code"></i>
+              <span>Raw manifest JSON</span>
+              <i class="pi pi-chevron-down chev"></i>
+            </summary>
+            <pre class="raw-json">{{ JSON.stringify(imageInfo.manifest, null, 2) }}</pre>
+          </details>
+        </template>
+
+        <div v-else class="no-data">
+          <i class="pi pi-info-circle"></i>
+          <p>Select a tag to view image details</p>
+        </div>
+      </section>
+
+      <!-- TAGS -->
+      <section v-if="activeTab === 'tags'" class="tags-section">
+        <div class="tag-filter">
+          <i class="pi pi-search"></i>
+          <input
+            type="text"
+            v-model="tagFilter"
+            placeholder="Filter tags"
+            aria-label="Filter tags"
+          />
+          <span v-if="tagFilter" class="clear" role="button" aria-label="Clear filter" @click="tagFilter = ''">
+            <i class="pi pi-times"></i>
+          </span>
+        </div>
+
+        <div class="tags-meta">
+          <span><b>{{ filteredTags.length }}</b> of <b>{{ tags.length }}</b> tags</span>
+          <span class="loaded-meta">
+            <i class="pi pi-database"></i>
+            {{ loadedTagsCount }} loaded
+          </span>
+        </div>
+
+        <div v-if="loadingTags" class="loading-inline">
+          <ProgressSpinner strokeWidth="3" style="width: 22px; height: 22px;" />
+          <span>Loading tags…</span>
+        </div>
+
+        <div v-else-if="!filteredTags.length" class="no-data">
+          <i class="pi pi-inbox"></i>
+          <p v-if="tagFilter">No tags match "{{ tagFilter }}"</p>
+          <p v-else>No tags found</p>
+        </div>
+
+        <div v-else class="tag-rows">
+          <article
+            v-for="tag in filteredTags"
+            :key="tag"
+            class="tag-row"
+            :class="{ expanded: selectedTag === tag, 'has-data': !!tagInfo(tag), 'failed': failedTags.has(tag) }"
+          >
+            <button
+              type="button"
+              class="tag-row-head"
+              :aria-expanded="selectedTag === tag"
+              @click="selectTag(tag)"
+            >
+              <span class="tag-name" :class="{ latest: tag === 'latest' }">
+                <span class="dot" aria-hidden="true"></span>
+                {{ tag }}
+              </span>
+              <span class="tag-row-end">
+                <ProgressSpinner
+                  v-if="selectedTag === tag && loadingInfo"
+                  strokeWidth="3"
+                  style="width: 14px; height: 14px;"
+                />
+                <span v-else-if="tagInfo(tag)?.totalSize" class="tag-size">{{ formatSize(tagInfo(tag).totalSize) }}</span>
+                <span v-else-if="failedTags.has(tag)" class="tag-status danger">
+                  <i class="pi pi-exclamation-triangle"></i>
+                </span>
+                <i class="pi pi-chevron-down chev" :class="{ open: selectedTag === tag }"></i>
+              </span>
+            </button>
+
+            <div v-if="selectedTag === tag" class="tag-panel">
+              <!-- Loading -->
+              <div v-if="loadingInfo" class="tag-panel-loading">
+                <ProgressSpinner strokeWidth="3" style="width: 20px; height: 20px;" />
+                <span>Loading manifest for <code>{{ tag }}</code>…</span>
+              </div>
+
+              <!-- Error -->
+              <div v-else-if="loadError" class="alert alert-error">
+                <i class="pi pi-exclamation-circle"></i>
+                <div class="alert-body">
+                  <strong>Could not load manifest</strong>
+                  <p>{{ loadError }}</p>
+                  <button type="button" class="btn-ghost small" @click.stop="retryLoadInfo">
+                    <i class="pi pi-refresh"></i> Retry
+                  </button>
+                </div>
+              </div>
+
+              <!-- Content -->
+              <template v-else-if="tagInfo(tag)">
+                <!-- Per-tag pull command -->
+                <div class="pullcmd inset">
+                  <div class="cmd">
+                    <span class="prompt">$</span>docker pull {{ tagPullCommand(tag) }}
+                  </div>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    @click.stop="copyTagPull(tag)"
+                    :aria-label="copiedTag === tag ? 'Copied' : 'Copy pull command'"
+                  >
+                    <i :class="copiedTag === tag ? 'pi pi-check' : 'pi pi-copy'"></i>
+                  </button>
+                </div>
+
+                <!-- Stats grid -->
+                <div class="tag-stats">
+                  <div class="stat-mini">
+                    <div class="k">Layers</div>
+                    <div class="v">{{ tagInfo(tag).manifest?.layers?.length ?? '—' }}</div>
+                  </div>
+                  <div class="stat-mini">
+                    <div class="k">Compressed</div>
+                    <div class="v">{{ formatSize(tagInfo(tag).totalSize) }}</div>
+                  </div>
+                  <div class="stat-mini">
+                    <div class="k">Schema</div>
+                    <div class="v">v{{ tagInfo(tag).manifest?.schemaVersion ?? '—' }}</div>
+                  </div>
+                  <div class="stat-mini">
+                    <div class="k">Pushed</div>
+                    <div class="v">{{ tagInfo(tag).created ? formatRelativeTime(tagInfo(tag).created) : '—' }}</div>
+                  </div>
+                </div>
+
+                <!-- Arches -->
+                <div v-if="tagArches(tag).length" class="tag-arches">
+                  <span class="arches-label">Platforms</span>
+                  <span
+                    v-for="arch in tagArches(tag)"
+                    :key="arch"
+                    class="pill"
+                  >{{ arch }}</span>
+                </div>
+
+                <!-- Digest -->
+                <div v-if="tagDigest(tag)" class="tag-digest-row">
+                  <span class="digest-label">Config digest</span>
+                  <code class="digest mono">{{ tagDigest(tag) }}</code>
+                </div>
+              </template>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- LAYERS -->
+      <section v-if="activeTab === 'layers'" class="layers-section">
+        <div v-if="!imageInfo?.manifest?.layers" class="no-data">
+          <i class="pi pi-info-circle"></i>
+          <p>Select a tag with a manifest to view layers</p>
+        </div>
+        <div v-else class="layers-list">
+          <div
+            v-for="(layer, index) in imageInfo.manifest.layers"
+            :key="layer.digest"
+            class="layer-row"
+          >
+            <div class="layer-index">{{ index + 1 }}</div>
+            <div class="layer-meta">
+              <div class="layer-size">{{ formatSize(layer.size) }}</div>
+              <div class="layer-type">{{ formatLayerType(layer.mediaType) }}</div>
+            </div>
+            <div class="layer-digest mono">
+              {{ shortenDigest(layer.digest) }}
+            </div>
+            <button
+              class="layer-copy"
+              @click="copyToClipboard(layer.digest)"
+              v-tooltip.left="'Copy digest'"
+              aria-label="Copy digest"
+            >
+              <i class="pi pi-copy"></i>
+            </button>
+            <div class="layer-bar">
+              <div
+                class="layer-bar-fill"
+                :style="{ width: getLayerPercentage(layer.size) + '%' }"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
-import Button from 'primevue/button'
-import Tag from 'primevue/tag'
-import Panel from 'primevue/panel'
-import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
-import TabView from 'primevue/tabview'
-import TabPanel from 'primevue/tabpanel'
 import { useRegistry } from '../composables/useRegistry'
 
 const props = defineProps({
-  repository: {
-    type: String,
-    required: true
-  }
+  repository: { type: String, required: true }
 })
 
-const { loadTags, loadImageInfo, tags: allTags, imageInfos, credentials } = useRegistry()
+defineEmits(['close'])
+
+const { loadTags, loadImageInfo, tags: allTags, imageInfos, registryUrl } = useRegistry()
 
 const loadingTags = ref(false)
 const loadingInfo = ref(false)
 const tagFilter = ref('')
 const selectedTag = ref(null)
 const loadError = ref(null)
-const failedTags = ref(new Set()) // Track which tags failed to load
+const failedTags = ref(new Set())
+const activeTab = ref('overview')
+const copied = ref(false)
+const copiedTag = ref(null)
 
 const tags = computed(() => allTags.value[props.repository] || [])
 
-// Sort tags: "latest" first, then by semantic version (descending), then alphabetically
+const registryHost = computed(() => {
+  const url = registryUrl.value
+  if (!url) return null
+  try { return new URL(url).host } catch { return url.replace(/^https?:\/\//, '').split('/')[0] }
+})
+
 const sortedTags = computed(() => {
   const tagList = [...tags.value]
-
   return tagList.sort((a, b) => {
-    // "latest" always first
     if (a === 'latest') return -1
     if (b === 'latest') return 1
-
-    // Try semantic version comparison (descending - newest first)
-    const versionA = parseVersion(a)
-    const versionB = parseVersion(b)
-
-    if (versionA && versionB) {
-      // Compare major.minor.patch descending
-      for (let i = 0; i < 3; i++) {
-        if (versionA[i] !== versionB[i]) {
-          return versionB[i] - versionA[i] // Descending
-        }
-      }
-      // If versions equal, compare suffix alphabetically descending
-      return (versionB[3] || '').localeCompare(versionA[3] || '')
+    const va = parseVersion(a), vb = parseVersion(b)
+    if (va && vb) {
+      for (let i = 0; i < 3; i++) if (va[i] !== vb[i]) return vb[i] - va[i]
+      return (vb[3] || '').localeCompare(va[3] || '')
     }
-
-    // Non-version tags: alphabetically descending (newer usually has higher chars)
     return b.localeCompare(a)
   })
 })
 
-// Parse semantic version string, returns [major, minor, patch, suffix] or null
 function parseVersion(tag) {
   const match = tag.match(/^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(.*)$/)
   if (!match) return null
@@ -320,8 +416,8 @@ function parseVersion(tag) {
 
 const filteredTags = computed(() => {
   if (!tagFilter.value) return sortedTags.value
-  const filter = tagFilter.value.toLowerCase()
-  return sortedTags.value.filter(tag => tag.toLowerCase().includes(filter))
+  const f = tagFilter.value.toLowerCase()
+  return sortedTags.value.filter(t => t.toLowerCase().includes(f))
 })
 
 const imageInfo = computed(() => {
@@ -329,13 +425,35 @@ const imageInfo = computed(() => {
   return imageInfos.value[`${props.repository}:${selectedTag.value}`]
 })
 
+const validPlatforms = computed(() => {
+  if (!imageInfo.value?.platforms) return []
+  return imageInfo.value.platforms.filter(p => p.os || p.architecture)
+})
+
 const maxLayerSize = computed(() => {
   if (!imageInfo.value?.manifest?.layers) return 0
   return Math.max(...imageInfo.value.manifest.layers.map(l => l.size || 0))
 })
 
+const layerCount = computed(() => imageInfo.value?.manifest?.layers?.length || '—')
+
+const totalSizeParts = computed(() => {
+  if (!imageInfo.value?.totalSize) return { num: '—', unit: '' }
+  const formatted = formatSize(imageInfo.value.totalSize)
+  const match = formatted.match(/^([\d.]+)\s*(\S+)$/)
+  return match ? { num: match[1], unit: match[2] } : { num: formatted, unit: '' }
+})
+
+const totalSizeNumber = computed(() => totalSizeParts.value.num)
+const totalSizeUnit = computed(() => totalSizeParts.value.unit)
+
+const latestTagLabel = computed(() => {
+  if (sortedTags.value.includes('latest')) return 'latest'
+  return sortedTags.value[0] || '—'
+})
+
 const pullCommand = computed(() => {
-  const registry = credentials.value?.registryUrl?.replace(/^https?:\/\//, '') || 'registry'
+  const registry = registryHost.value || 'registry'
   const tag = selectedTag.value || 'latest'
   return `${registry}/${props.repository}:${tag}`
 })
@@ -348,10 +466,10 @@ watch(() => props.repository, async () => {
   selectedTag.value = null
   loadError.value = null
   failedTags.value = new Set()
+  activeTab.value = 'overview'
   await fetchTags()
 })
 
-// Auto-load details when tag is selected
 watch(selectedTag, async (newTag) => {
   loadError.value = null
   if (newTag && !imageInfos.value[`${props.repository}:${newTag}`] && !failedTags.value.has(newTag)) {
@@ -363,7 +481,6 @@ async function fetchTags() {
   loadingTags.value = true
   try {
     await loadTags(props.repository)
-    // Auto-select 'latest' if available, otherwise first tag
     if (tags.value.includes('latest')) {
       selectedTag.value = 'latest'
     } else if (tags.value.length > 0) {
@@ -375,9 +492,11 @@ async function fetchTags() {
 }
 
 function selectTag(tag) {
-  if (selectedTag.value !== tag) {
-    selectedTag.value = tag
+  if (selectedTag.value === tag) {
+    activeTab.value = activeTab.value === 'tags' ? 'overview' : activeTab.value
+    return
   }
+  selectedTag.value = tag
 }
 
 async function loadImageInfoForTag(tag) {
@@ -385,13 +504,10 @@ async function loadImageInfoForTag(tag) {
   loadError.value = null
   try {
     const result = await loadImageInfo(props.repository, tag)
-    if (!result) {
-      throw new Error('Failed to load image details')
-    }
-    // Remove from failed tags if retry succeeded
+    if (!result) throw new Error('Failed to load image details')
     failedTags.value.delete(tag)
   } catch (err) {
-    loadError.value = err.message || 'Failed to load image details. Please check if the registry is accessible.'
+    loadError.value = err.message || 'Failed to load image details.'
     failedTags.value.add(tag)
   } finally {
     loadingInfo.value = false
@@ -405,13 +521,45 @@ function retryLoadInfo() {
   }
 }
 
+function tagInfo(tag) {
+  return imageInfos.value[`${props.repository}:${tag}`] || null
+}
+
+function tagDigest(tag) {
+  return tagInfo(tag)?.manifest?.config?.digest || ''
+}
+
+function tagArches(tag) {
+  const info = tagInfo(tag)
+  if (!info?.platforms) return []
+  return info.platforms
+    .filter(p => p.architecture)
+    .map(p => `${p.os || 'linux'}/${p.architecture}${p.variant ? `/${p.variant}` : ''}`)
+    .slice(0, 6)
+}
+
+function tagPullCommand(tag) {
+  const registry = registryHost.value || 'registry'
+  return `${registry}/${props.repository}:${tag}`
+}
+
+async function copyTagPull(tag) {
+  await copyToClipboard(`docker pull ${tagPullCommand(tag)}`)
+  copiedTag.value = tag
+  setTimeout(() => {
+    if (copiedTag.value === tag) copiedTag.value = null
+  }, 1600)
+}
+
+const loadedTagsCount = computed(() => {
+  const prefix = `${props.repository}:`
+  return Object.keys(imageInfos.value || {}).filter(k => k.startsWith(prefix)).length
+})
+
 function shortenDigest(digest) {
   if (!digest) return ''
-  // Show algorithm prefix + first 12 chars of hash
   const parts = digest.split(':')
-  if (parts.length === 2) {
-    return `${parts[0]}:${parts[1].substring(0, 12)}`
-  }
+  if (parts.length === 2) return `${parts[0]}:${parts[1].substring(0, 12)}`
   return digest.substring(0, 19)
 }
 
@@ -432,20 +580,10 @@ function formatLayerType(mediaType) {
 
 function formatPlatform(platform) {
   if (!platform) return null
-  // Don't show if both os and architecture are missing
   if (!platform.os && !platform.architecture) return null
-
   let result = `${platform.os || '?'}/${platform.architecture || '?'}`
-  if (platform.variant) {
-    result += `/${platform.variant}`
-  }
+  if (platform.variant) result += `/${platform.variant}`
   return result
-}
-
-// Filter out platforms with unknown/unknown
-function getValidPlatforms(platforms) {
-  if (!platforms) return []
-  return platforms.filter(p => p.os || p.architecture)
 }
 
 function formatSize(bytes) {
@@ -453,27 +591,8 @@ function formatSize(bytes) {
   const units = ['B', 'KB', 'MB', 'GB']
   let i = 0
   let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
   return `${size.toFixed(1)} ${units[i]}`
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  try {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('pl-PL', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  } catch {
-    return dateStr
-  }
 }
 
 function formatRelativeTime(dateStr) {
@@ -483,16 +602,13 @@ function formatRelativeTime(dateStr) {
     const now = new Date()
     const diffMs = now - date
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) return 'Today'
-    if (diffDays === 1) return 'Yesterday'
-    if (diffDays < 7) return `${diffDays} days ago`
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
-    return `${Math.floor(diffDays / 365)} years ago`
-  } catch {
-    return ''
-  }
+    if (diffDays === 0) return 'today'
+    if (diffDays === 1) return 'yesterday'
+    if (diffDays < 7) return `${diffDays}d ago`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`
+    return `${Math.floor(diffDays / 365)}y ago`
+  } catch { return '' }
 }
 
 function getLayerPercentage(size) {
@@ -501,361 +617,863 @@ function getLayerPercentage(size) {
 }
 
 async function copyToClipboard(text) {
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    console.error('Failed to copy to clipboard')
-  }
+  try { await navigator.clipboard.writeText(text) } catch { /* clipboard unavailable */ }
 }
 
 async function copyPullCommand() {
   await copyToClipboard(`docker pull ${pullCommand.value}`)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 1600)
 }
 </script>
 
 <style scoped>
 .image-details {
-  padding: 0.5rem;
-}
-
-.section {
-  margin-bottom: 1.5rem;
-}
-
-.section-header {
-  margin-bottom: 1rem;
-}
-
-.section-header h3 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  color: var(--p-text-color);
-  font-size: 1rem;
-}
-
-.section-header h3 i {
-  color: var(--p-primary-color);
-}
-
-.tag-count {
-  font-weight: normal;
-  color: var(--p-text-muted-color);
-  font-size: 0.875rem;
-}
-
-.tag-filter {
-  margin-bottom: 1rem;
-  max-width: 300px;
-}
-
-.loading-inline {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--p-text-muted-color);
-  padding: 0.5rem 0;
-}
-
-.loading-section {
+  background: var(--canvas);
+  color: var(--fg);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 3rem;
-  color: var(--p-text-muted-color);
-}
-
-/* Error Section */
-.error-section {
-  padding: 1rem 0;
-}
-
-.error-message {
+  height: 100%;
   width: 100%;
+  border-radius: 0;
+  overflow: hidden;
+  position: relative;
 }
 
-.error-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+@media (min-width: 768px) {
+  .image-details {
+    border-radius: 14px;
+    max-height: 88vh;
+  }
 }
 
-.error-content strong {
-  font-size: 1rem;
-}
-
-.error-content p {
-  margin: 0;
-  font-size: 0.875rem;
-  opacity: 0.9;
-}
-
-.error-actions {
-  margin-top: 0.5rem;
-}
-
-.tags-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.tag-item {
+/* Mobile topbar — only shown when dialog is fullscreen (< 768px) */
+.topbar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  padding: 0.35rem 0.5rem;
-  border-radius: 6px;
-  transition: all 0.2s;
-  border: 1px solid transparent;
+  height: 52px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  gap: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  z-index: 5;
 }
 
-.tag-item:hover {
-  background: var(--p-surface-hover);
+@media (min-width: 768px) {
+  .topbar { display: none; }
 }
 
-.tag-item.selected {
-  background: var(--p-highlight-background);
-  border-color: var(--p-primary-color);
+/* Desktop floating close (only on ≥ 768px) */
+.floating-close {
+  display: none;
 }
 
-.tag-item.loading {
-  opacity: 0.7;
+@media (min-width: 768px) {
+  .floating-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    z-index: 10;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .floating-close:hover {
+    background: var(--canvas-subtle);
+    border-color: var(--border);
+    color: var(--fg);
+  }
 }
 
-.tag-loaded {
-  color: var(--p-green-500);
-  font-size: 0.875rem;
-}
-
-.tag-error {
-  color: var(--p-red-500);
-  font-size: 0.875rem;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 2rem;
-  color: var(--p-text-muted-color);
-}
-
-.empty-state i {
-  font-size: 2rem;
-}
-
-/* Metrics Row */
-.metrics-row {
+.topbar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  place-items: center;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
 }
 
-.metric {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: var(--p-surface-card);
-  border: 1px solid var(--p-surface-border);
-  border-radius: 10px;
+.topbar-btn:hover {
+  background: var(--canvas-subtle);
+  border-color: var(--border);
 }
 
-.metric > i {
-  font-size: 1.5rem;
-  color: var(--p-primary-color);
-  opacity: 0.8;
-}
+.topbar-btn:first-child { color: var(--accent); }
 
-.metric-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.metric-value {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--p-text-color);
-}
-
-.metric-label {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
-}
-
-/* Platforms Section */
-.platforms-section {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: var(--p-surface-card);
-  border: 1px solid var(--p-surface-border);
-  border-radius: 10px;
-}
-
-.platforms-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+.topbar-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
   font-weight: 500;
-  color: var(--p-text-color);
+  color: var(--fg);
+  letter-spacing: -0.005em;
+  flex: 1;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.platforms-header i {
-  color: var(--p-primary-color);
+/* Head */
+.detail-head {
+  padding: 14px 16px 4px;
+  flex-shrink: 0;
 }
 
-.multi-arch-badge {
-  margin-left: auto;
+@media (min-width: 768px) {
+  .detail-head { padding: 20px 56px 4px 24px; }
 }
+
+.breadcrumb {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.breadcrumb b { color: var(--accent); font-weight: 500; }
+.breadcrumb .sep { color: var(--border); }
+
+.detail-head h2 {
+  font: 600 22px/1.2 var(--font-mono);
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
+  color: var(--fg);
+  word-break: break-all;
+}
+
+.detail-head .desc {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+/* Pull command */
+.pullcmd {
+  margin: 0 16px 14px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--canvas-subtle);
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .pullcmd { margin: 0 24px 16px; }
+}
+
+.pullcmd .cmd {
+  flex: 1;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pullcmd .prompt { color: var(--fg-muted); margin-right: 8px; }
+
+.pullcmd .copy-btn {
+  width: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--canvas);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.pullcmd .copy-btn:hover { color: var(--accent); background: var(--canvas-subtle); }
+.pullcmd .copy-btn:active { color: var(--accent); }
+
+/* Stats grid — mobile-first: 2 cols, scales to 4 */
+.stats {
+  margin: 0 16px 14px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .stats { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (min-width: 768px) {
+  .stats { margin: 0 24px 16px; }
+}
+
+.stat {
+  background: var(--canvas);
+  padding: 12px 14px;
+}
+
+.stat .k {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 4px;
+}
+
+.stat .v {
+  font: 600 18px/1.2 var(--font-ui);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.stat .v small {
+  font: 400 12px/1 var(--font-mono);
+  color: var(--fg-muted);
+}
+
+/* Segmented tabs */
+.seg {
+  margin: 4px 16px 0;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.seg::-webkit-scrollbar { display: none; }
+
+@media (min-width: 768px) {
+  .seg { margin: 4px 24px 0; }
+}
+
+.seg-tab {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.seg-tab:hover:not(:disabled) { color: var(--fg); }
+
+.seg-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.seg-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.seg-tab .badge {
+  display: inline-block;
+  margin-left: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: var(--canvas-inset);
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+
+.seg-tab.active .badge {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+/* Tab content */
+.tab-content {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 16px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 768px) {
+  .tab-content { padding: 16px 24px 24px; }
+}
+
+/* Overview cards */
+.info-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--canvas);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.info-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--canvas-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  font: 500 12.5px/1 var(--font-ui);
+  color: var(--fg);
+}
+
+.info-card-head i { color: var(--fg-muted); font-size: 12px; }
 
 .platforms-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.platform-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--p-surface-ground);
-  border: 1px solid var(--p-surface-border);
-  border-radius: 20px;
-  font-size: 0.875rem;
-}
-
-.platform-name {
-  font-family: monospace;
-  font-weight: 500;
-  color: var(--p-text-color);
+  gap: 6px;
+  padding: 14px;
 }
 
 .platform-size {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
-  padding-left: 0.5rem;
-  border-left: 1px solid var(--p-surface-border);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
 }
 
-/* Details Panel */
-.details-panel,
-.layers-panel,
-.raw-panel {
-  margin-bottom: 1rem;
-}
-
-.details-grid {
+.kv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: 1fr;
+  gap: 12px 16px;
+  padding: 14px;
 }
 
-.detail-item {
+@media (min-width: 640px) {
+  .kv-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.kv {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 3px;
+  min-width: 0;
 }
 
-.detail-item.full-width {
-  grid-column: 1 / -1;
-}
+.kv.full { grid-column: 1 / -1; }
 
-.detail-label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--p-text-muted-color);
+.kv b {
+  font: 500 10px/1 var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
 }
 
-.detail-value {
-  font-size: 0.9rem;
-  color: var(--p-text-color);
-}
-
-.detail-value.digest {
-  font-family: monospace;
-  font-size: 0.8rem;
-  color: var(--p-primary-color);
+.kv span {
+  font-size: 12.5px;
+  color: var(--fg);
   word-break: break-all;
-  background: var(--p-surface-ground);
-  padding: 0.5rem;
+}
+
+.kv .digest {
+  font-size: 11.5px;
+  color: var(--accent);
+  background: var(--canvas-inset);
+  padding: 4px 6px;
   border-radius: 4px;
 }
 
-/* Layers List */
+/* Raw JSON */
+.raw-card summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--canvas-subtle);
+  font: 500 12.5px/1 var(--font-ui);
+  color: var(--fg);
+}
+
+.raw-card summary::-webkit-details-marker { display: none; }
+.raw-card summary i { color: var(--fg-muted); font-size: 12px; }
+.raw-card summary .chev { margin-left: auto; transition: transform 0.2s; }
+.raw-card[open] summary .chev { transform: rotate(180deg); }
+.raw-card[open] summary { border-bottom: 1px solid var(--border-subtle); }
+
+.raw-json {
+  margin: 0;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  background: var(--canvas-inset);
+  color: var(--fg);
+  overflow: auto;
+  max-height: 360px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Loading / alerts */
+.loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.alert-error {
+  background: var(--danger-subtle);
+  border: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
+  color: var(--danger);
+}
+
+.alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-body strong { font-size: 13px; }
+.alert-body p { margin: 0; font-size: 12px; color: inherit; opacity: 0.9; }
+
+.btn-ghost.small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  width: max-content;
+  margin-top: 4px;
+}
+
+.no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  border-radius: 10px;
+}
+
+.no-data i { font-size: 24px; }
+.no-data p { margin: 0; font-size: 13px; }
+
+/* Tags section */
+.tag-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  color: var(--fg-muted);
+}
+
+.tag-filter:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 22%, transparent);
+}
+
+.tag-filter i { font-size: 12px; flex-shrink: 0; }
+
+.tag-filter input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.tag-filter input::placeholder { color: var(--fg-muted); }
+
+.tag-filter .clear {
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.tag-filter .clear:hover { background: var(--canvas); color: var(--fg); }
+
+.tags-meta {
+  padding: 4px 2px 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tags-meta b { color: var(--fg); font-weight: 500; }
+
+.tags-meta .loaded-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-muted);
+}
+
+.tags-meta .loaded-meta i { font-size: 11px; }
+
+.tag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tag-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--canvas);
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.tag-row:hover {
+  border-color: color-mix(in oklch, var(--accent) 30%, var(--border));
+}
+
+.tag-row.expanded {
+  border-color: var(--accent);
+  background: var(--canvas-subtle);
+}
+
+.tag-row.failed {
+  border-color: color-mix(in oklch, var(--danger) 30%, var(--border));
+}
+
+.tag-row-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  min-height: 48px;
+}
+
+.tag-row-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 9px;
+}
+
+.tag-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-name .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.tag-name.latest .dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--success) 18%, transparent);
+}
+
+.tag-row.has-data .tag-name .dot {
+  background: var(--accent);
+}
+
+.tag-row-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.tag-size {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-status.danger { color: var(--danger); }
+.tag-status i { font-size: 12px; }
+
+.chev {
+  font-size: 11px;
+  color: var(--fg-muted);
+  transition: transform 0.2s;
+}
+
+.chev.open { transform: rotate(180deg); }
+
+/* Expanded panel */
+.tag-panel {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.tag-panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  padding: 6px 0;
+}
+
+.tag-panel-loading code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--canvas-inset);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--fg);
+}
+
+.pullcmd.inset {
+  margin: 0;
+  background: var(--canvas);
+}
+
+.tag-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .tag-stats { grid-template-columns: repeat(4, 1fr); }
+}
+
+.stat-mini {
+  background: var(--canvas);
+  padding: 10px 12px;
+}
+
+.stat-mini .k {
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+
+.stat-mini .v {
+  font: 600 14px/1.2 var(--font-ui);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+.tag-arches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tag-arches .arches-label {
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin-right: 4px;
+}
+
+.tag-digest-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.digest-label {
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
+.tag-digest-row .digest {
+  font-size: 11.5px;
+  color: var(--accent);
+  background: var(--canvas-inset);
+  padding: 6px 8px;
+  border-radius: 5px;
+  word-break: break-all;
+}
+
+/* Layers */
 .layers-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
-.layer-item {
+.layer-row {
   display: grid;
-  grid-template-columns: 40px 120px 1fr auto;
-  gap: 1rem;
+  grid-template-columns: 32px 1fr auto;
+  grid-template-areas:
+    "idx meta copy"
+    "idx digest digest";
+  gap: 4px 10px;
   align-items: center;
-  padding: 0.75rem;
-  background: var(--p-surface-ground);
+  padding: 12px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
   border-radius: 8px;
   position: relative;
+  overflow: hidden;
+}
+
+.layer-row .layer-index { grid-area: idx; }
+.layer-row .layer-meta { grid-area: meta; }
+.layer-row .layer-digest { grid-area: digest; }
+.layer-row .layer-copy { grid-area: copy; }
+
+@media (min-width: 640px) {
+  .layer-row {
+    grid-template-columns: 36px 140px 1fr auto;
+    grid-template-areas: none;
+    gap: 12px;
+  }
+  .layer-row .layer-index,
+  .layer-row .layer-meta,
+  .layer-row .layer-digest,
+  .layer-row .layer-copy { grid-area: auto; }
 }
 
 .layer-index {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--p-primary-color);
-  color: var(--p-primary-contrast-color);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-subtle);
+  color: var(--accent);
   border-radius: 50%;
-  font-weight: 600;
-  font-size: 0.875rem;
+  font: 600 12px/1 var(--font-mono);
+  border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
-.layer-info {
-  display: flex;
-  flex-direction: column;
-}
-
+.layer-meta { display: flex; flex-direction: column; gap: 2px; }
 .layer-size {
   font-weight: 600;
-  color: var(--p-text-color);
+  color: var(--fg);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
-
 .layer-type {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
 }
 
 .layer-digest {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--fg-muted);
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.layer-digest code {
-  font-family: monospace;
-  font-size: 0.8rem;
-  color: var(--p-text-muted-color);
+.layer-copy {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
 }
 
-.copy-btn {
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.layer-item:hover .copy-btn {
-  opacity: 1;
+.layer-copy:hover {
+  background: var(--canvas);
+  border-color: var(--border);
+  color: var(--accent);
 }
 
 .layer-bar {
@@ -863,97 +1481,15 @@ async function copyPullCommand() {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
-  background: var(--p-surface-border);
-  border-radius: 0 0 8px 8px;
+  height: 2px;
+  background: transparent;
   overflow: hidden;
 }
 
 .layer-bar-fill {
   height: 100%;
-  background: var(--p-primary-color);
+  background: var(--accent);
   transition: width 0.3s ease;
 }
 
-/* Raw JSON */
-.raw-json {
-  margin: 0;
-  padding: 1rem;
-  font-size: 0.75rem;
-  background: var(--p-surface-ground);
-  border-radius: 6px;
-  overflow: auto;
-  max-height: 400px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* No Data */
-.no-data {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 2rem;
-  color: var(--p-text-muted-color);
-  background: var(--p-surface-ground);
-  border-radius: 8px;
-}
-
-.no-data i {
-  font-size: 2rem;
-}
-
-/* Pull Section */
-.pull-section {
-  border-top: 1px solid var(--p-surface-border);
-  padding-top: 1rem;
-}
-
-.pull-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  font-weight: 500;
-  color: var(--p-text-color);
-}
-
-.pull-header i {
-  color: var(--p-primary-color);
-}
-
-.pull-command {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--p-surface-ground);
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--p-surface-border);
-}
-
-.pull-command code {
-  flex: 1;
-  font-family: monospace;
-  font-size: 0.9rem;
-  color: var(--p-text-color);
-  word-break: break-all;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .layer-item {
-    grid-template-columns: 32px 1fr;
-    gap: 0.5rem;
-  }
-
-  .layer-digest {
-    grid-column: 1 / -1;
-  }
-
-  .metrics-row {
-    grid-template-columns: 1fr 1fr;
-  }
-}
 </style>
