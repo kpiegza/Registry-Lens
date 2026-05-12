@@ -1,109 +1,100 @@
 <template>
   <div class="registry-browser">
-    <!-- Header -->
-    <div class="browser-header">
-      <div class="header-left">
-        <h2>Docker Registry</h2>
-        <Tag :value="credentials?.registryUrl" severity="info" />
+    <!-- Storage gauge / overview -->
+    <div class="gauge">
+      <div class="gauge-row">
+        <span class="gauge-label">Repositories index</span>
+        <span class="gauge-value">
+          <b>{{ filteredRepositories.length }}</b> / {{ repositories.length }}
+        </span>
       </div>
-      <div class="header-right">
-        <Button
-          icon="pi pi-refresh"
-          text
-          rounded
-          @click="refresh"
-          :loading="isLoading"
-          v-tooltip="'Refresh repositories'"
-        />
-        <Button
-          icon="pi pi-sign-out"
-          text
-          rounded
-          severity="danger"
-          @click="handleDisconnect"
-          v-tooltip="'Disconnect'"
-        />
+      <div class="gauge-bar">
+        <i :style="{ width: gaugePercent + '%' }"></i>
+      </div>
+      <div class="gauge-foot">
+        <span><b>{{ repositories.length }}</b> repos</span>
+        <span><b>{{ totalTagsLoaded }}</b> tags</span>
+        <span><b>{{ totalManifestsLoaded }}</b> cached</span>
       </div>
     </div>
 
-    <!-- Search/Filter -->
-    <div class="filter-section">
-      <IconField>
-        <InputIcon class="pi pi-search" />
-        <InputText
-          v-model="filterText"
-          placeholder="Filter repositories..."
-          class="w-full"
-          @input="handleFilter"
-        />
-      </IconField>
-      <div class="filter-stats">
-        Showing {{ filteredRepositories.length }} of {{ repositories.length }} repositories
-      </div>
+    <!-- Search -->
+    <div class="searchbar">
+      <i class="pi pi-search"></i>
+      <input
+        type="text"
+        v-model="filterText"
+        placeholder="Search repositories"
+        @input="handleFilter"
+        aria-label="Filter repositories"
+      />
+      <span v-if="filterText" class="clear" @click="clearFilter" role="button" aria-label="Clear filter">
+        <i class="pi pi-times"></i>
+      </span>
     </div>
 
-    <!-- Error message -->
-    <Message v-if="error" severity="error" :closable="true" @close="clearError">
-      {{ error }}
-    </Message>
+    <!-- Error -->
+    <div v-if="error" class="alert alert-error" role="alert">
+      <i class="pi pi-exclamation-circle"></i>
+      <span>{{ error }}</span>
+    </div>
 
     <!-- Loading -->
     <div v-if="isLoading && !repositories.length" class="loading-section">
-      <ProgressSpinner />
-      <p>Loading repositories...</p>
+      <ProgressSpinner strokeWidth="3" style="width: 36px; height: 36px;" />
+      <p>Loading repositories…</p>
     </div>
 
-    <!-- Repository List -->
-    <div v-else class="repository-list">
-      <DataView
-        :value="filteredRepositories"
-        :layout="'list'"
-        :paginator="filteredRepositories.length > 20"
-        :rows="20"
-        :rowsPerPageOptions="[10, 20, 50, 100]"
-      >
-        <template #empty>
-          <div class="empty-state">
-            <i class="pi pi-inbox"></i>
-            <p v-if="filter">No repositories match "{{ filter }}"</p>
-            <p v-else>No repositories found in this registry</p>
-          </div>
-        </template>
+    <!-- Empty -->
+    <div v-else-if="!filteredRepositories.length" class="empty-state">
+      <i class="pi pi-inbox"></i>
+      <p v-if="filterText">No repositories match "{{ filterText }}"</p>
+      <p v-else>No repositories found in this registry</p>
+    </div>
 
-        <template #list="slotProps">
-          <div class="repository-items">
-            <div
-              v-for="repo in slotProps.items"
-              :key="repo"
-              class="repository-item"
-              :class="{ selected: selectedRepo === repo }"
-              @click="selectRepository(repo)"
-            >
-              <div class="repo-info">
-                <i class="pi pi-box repo-icon"></i>
-                <span class="repo-name">{{ repo }}</span>
-              </div>
-              <div class="repo-actions">
-                <Button
-                  icon="pi pi-chevron-right"
-                  text
-                  rounded
-                  size="small"
-                />
-              </div>
-            </div>
+    <!-- Repo grid -->
+    <div v-else class="repo-list">
+      <article
+        v-for="repo in filteredRepositories"
+        :key="repo"
+        class="repo"
+        :class="{ selected: selectedRepo === repo }"
+        @click="selectRepository(repo)"
+        @keydown.enter="selectRepository(repo)"
+        tabindex="0"
+        role="button"
+      >
+        <div class="repo-head">
+          <div class="repo-name">
+            <b>{{ repoNamespace(repo) }}</b>
+            <span v-if="repoTail(repo)">/{{ repoTail(repo) }}</span>
           </div>
-        </template>
-      </DataView>
+          <span class="repo-private">private</span>
+        </div>
+        <p class="repo-desc">
+          Docker image hosted on this registry. Tap to inspect tags, layers and pull command.
+        </p>
+        <div class="repo-tags">
+          <span class="pill latest">
+            <i class="pi pi-tag" style="font-size: 10px;"></i>
+            {{ tagCountLabel(repo) }}
+          </span>
+          <span class="pill">linux/amd64</span>
+        </div>
+        <div class="repo-stats">
+          <span><i class="pi pi-clone"></i>{{ tagCount(repo) }} tags</span>
+          <span><i class="pi pi-arrow-right"></i>open</span>
+        </div>
+      </article>
     </div>
 
     <!-- Image Details Dialog -->
     <Dialog
       v-model:visible="showDetails"
-      :header="selectedRepo"
       :modal="true"
-      :style="{ width: '80vw', maxWidth: '900px' }"
-      :maximizable="true"
+      :showHeader="false"
+      :dismissableMask="true"
+      class="details-dialog"
     >
       <ImageDetails
         v-if="selectedRepo"
@@ -115,15 +106,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
-import Tag from 'primevue/tag'
-import Message from 'primevue/message'
+import { ref, computed, onMounted } from 'vue'
 import ProgressSpinner from 'primevue/progressspinner'
-import DataView from 'primevue/dataview'
 import Dialog from 'primevue/dialog'
 import ImageDetails from './ImageDetails.vue'
 import { useRegistry } from '../composables/useRegistry'
@@ -135,8 +119,8 @@ const {
   filteredRepositories,
   selectedRepo,
   filter,
-  credentials,
-  disconnect,
+  tags,
+  imageInfos,
   loadRepositories,
   setFilter,
   selectRepo
@@ -144,6 +128,17 @@ const {
 
 const filterText = ref(filter.value || '')
 const showDetails = ref(false)
+
+const totalTagsLoaded = computed(() =>
+  Object.values(tags.value || {}).reduce((sum, arr) => sum + (arr?.length || 0), 0)
+)
+
+const totalManifestsLoaded = computed(() => Object.keys(imageInfos.value || {}).length)
+
+const gaugePercent = computed(() => {
+  if (!repositories.value.length) return 0
+  return Math.round((filteredRepositories.value.length / repositories.value.length) * 100)
+})
 
 onMounted(() => {
   if (!repositories.value.length) {
@@ -155,12 +150,9 @@ function handleFilter() {
   setFilter(filterText.value)
 }
 
-function handleDisconnect() {
-  disconnect()
-}
-
-function refresh() {
-  loadRepositories()
+function clearFilter() {
+  filterText.value = ''
+  setFilter('')
 }
 
 function selectRepository(repo) {
@@ -172,117 +164,358 @@ function closeDetails() {
   showDetails.value = false
 }
 
-function clearError() {
-  // Error will be cleared on next action
+function repoNamespace(repo) {
+  const idx = repo.indexOf('/')
+  return idx === -1 ? repo : repo.slice(0, idx)
+}
+
+function repoTail(repo) {
+  const idx = repo.indexOf('/')
+  return idx === -1 ? '' : repo.slice(idx + 1)
+}
+
+function tagCount(repo) {
+  return tags.value?.[repo]?.length || 0
+}
+
+function tagCountLabel(repo) {
+  const count = tagCount(repo)
+  return count > 0 ? `${count} tag${count === 1 ? '' : 's'}` : 'inspect tags'
 }
 </script>
 
 <style scoped>
 .registry-browser {
-  padding: 1.5rem;
-  max-width: 1200px;
+  max-width: var(--page-max);
   margin: 0 auto;
+  padding: 16px var(--page-padding-mobile) 32px;
 }
 
-.browser-header {
+/* Gauge */
+.gauge {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.gauge-row {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 8px;
+  gap: 8px;
 }
 
-.header-left {
+.gauge-label {
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+
+.gauge-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge-value b {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.gauge-bar {
+  height: 4px;
+  background: color-mix(in oklch, var(--border) 60%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.gauge-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.25s ease;
+}
+
+.gauge-foot {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+
+.gauge-foot span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.gauge-foot span + span {
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 12px;
+}
+
+.gauge-foot b {
+  color: var(--fg);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Search */
+.searchbar {
+  margin-bottom: 14px;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-muted);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.header-left h2 {
-  margin: 0;
-  color: var(--p-text-color);
+.searchbar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 22%, transparent);
 }
 
-.header-right {
+.searchbar i { font-size: 13px; flex-shrink: 0; }
+
+.searchbar input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--fg);
+  padding: 0;
+}
+
+.searchbar input::placeholder { color: var(--fg-muted); }
+
+.searchbar .clear {
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.searchbar .clear:hover { background: var(--canvas); color: var(--fg); }
+
+/* Alert */
+.alert {
   display: flex;
-  gap: 0.5rem;
-}
-
-.filter-section {
-  margin-bottom: 1rem;
-}
-
-.w-full {
-  width: 100%;
-}
-
-.filter-stats {
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
-  color: var(--p-text-muted-color);
-}
-
-.loading-section {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 3rem;
-  color: var(--p-text-muted-color);
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 14px;
 }
 
+.alert-error {
+  background: var(--danger-subtle);
+  border: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
+  color: var(--danger);
+}
+
+/* Loading / empty */
+.loading-section,
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 3rem;
-  color: var(--p-text-muted-color);
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: var(--fg-muted);
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
 }
 
-.empty-state i {
-  font-size: 3rem;
-  margin-bottom: 1rem;
+.empty-state i { font-size: 28px; }
+.empty-state p, .loading-section p { margin: 0; }
+
+/* Repo list — mobile-first single column */
+.repo-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
-.repository-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.repository-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  background: var(--p-surface-card);
-  border: 1px solid var(--p-surface-border);
-  border-radius: 8px;
+.repo {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--canvas);
+  padding: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.15s, background 0.15s;
+  outline: none;
 }
 
-.repository-item:hover {
-  background: var(--p-surface-hover);
-  border-color: var(--p-primary-color);
+.repo:hover {
+  border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
+  background: color-mix(in oklch, var(--accent-subtle) 35%, var(--canvas));
 }
 
-.repository-item.selected {
-  border-color: var(--p-primary-color);
-  background: var(--p-highlight-background);
+.repo:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 22%, transparent);
 }
 
-.repo-info {
+.repo.selected { border-color: var(--accent); }
+
+.repo-head {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.repo-icon {
-  font-size: 1.25rem;
-  color: var(--p-primary-color);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .repo-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
   font-weight: 500;
-  color: var(--p-text-color);
+  color: var(--fg);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-name b {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.repo-private {
+  font-size: 11px;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-weight: 500;
+  flex-shrink: 0;
+  background: var(--canvas);
+}
+
+.repo-desc {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+  margin: 0 0 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.repo-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.repo-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.repo-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.repo-stats i { font-size: 11px; }
+
+/* ---- Breakpoints up ---- */
+@media (min-width: 768px) {
+  .registry-browser {
+    padding: 24px var(--page-padding-desktop) 48px;
+  }
+  .repo-list {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .repo-list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .repo-list {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+</style>
+
+<style>
+/* Dialog overrides — Primer-style chrome, mobile-first */
+.details-dialog.p-dialog {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: var(--canvas) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+.details-dialog .p-dialog-content {
+  background: var(--canvas) !important;
+  color: var(--fg) !important;
+  padding: 0 !important;
+  height: 100% !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.details-dialog .p-dialog-header { display: none !important; }
+
+@media (min-width: 768px) {
+  .details-dialog.p-dialog {
+    width: 92vw !important;
+    height: auto !important;
+    max-width: 960px !important;
+    max-height: 88vh !important;
+    border-radius: 14px !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: 0 24px 48px -12px rgba(0,0,0,0.25) !important;
+  }
 }
 </style>

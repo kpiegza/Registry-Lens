@@ -8,6 +8,7 @@ const state = reactive({
   isConnected: false,
   isLoading: false,
   error: null,
+  errorDetails: null,     // Detailed error information with suggestion
   repositories: [],
   selectedRepo: null,
   tags: {},           // { repoName: [tags] }
@@ -34,6 +35,7 @@ export function useRegistry() {
   async function connect(registryUrl, username, password) {
     state.isLoading = true
     state.error = null
+    state.errorDetails = null
 
     try {
       const saveResult = await registryApi.saveCredentials(registryUrl, username, password)
@@ -43,17 +45,34 @@ export function useRegistry() {
 
       if (result.success) {
         state.isConnected = true
-        state.registryUrl = registryUrl
+        // Read the saved URL back rather than trusting the input —
+        // registryApi may override it (e.g. VITE_REGISTRY_URL lock).
+        state.registryUrl = registryApi.getCredentials()?.registryUrl || registryUrl
+        state.error = null
+        state.errorDetails = null
         await loadRepositories()
         return { success: true, storageMethod: saveResult.method }
       } else {
         state.error = result.error
+        // Store detailed error information if available
+        if (result.errorType) {
+          state.errorDetails = {
+            message: result.error.split('.')[0], // First sentence
+            details: result.details || '',
+            suggestion: result.error.includes('.') ? result.error.substring(result.error.indexOf('.') + 1).trim() : ''
+          }
+        }
         state.registryUrl = null
         await registryApi.clearCredentials()
         return { success: false, error: result.error }
       }
     } catch (err) {
       state.error = err.message
+      state.errorDetails = {
+        message: err.message.split('.')[0],
+        details: err.details || '',
+        suggestion: err.message.includes('.') ? err.message.substring(err.message.indexOf('.') + 1).trim() : ''
+      }
       state.registryUrl = null
       await registryApi.clearCredentials()
       return { success: false, error: err.message }
@@ -227,6 +246,7 @@ export function useRegistry() {
     isConnected: computed(() => state.isConnected),
     isLoading: computed(() => state.isLoading),
     error: computed(() => state.error),
+    errorDetails: computed(() => state.errorDetails),
     repositories: computed(() => state.repositories),
     filteredRepositories,
     selectedRepo: computed(() => state.selectedRepo),

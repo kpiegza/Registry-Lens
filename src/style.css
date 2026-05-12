@@ -1,38 +1,156 @@
-/* Global styles for Registry UI */
+/* ============================================================
+   Registry Lens — GitHub Primer-inspired tokens
+   Derived from prototype.html
+   ============================================================ */
+
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Light tokens (default) */
+  --canvas:        #ffffff;
+  --canvas-subtle: #f6f8fa;
+  --canvas-inset:  #eaeef2;
+  --fg:            #1f2328;
+  --fg-muted:      #656d76;
+  --border:        #d0d7de;
+  --border-muted:  #d8dee4;
+  --border-subtle: #eaeef2;
+  --accent:        #0969da;
+  --accent-hover:  #0550ae;
+  --accent-subtle: #ddf4ff;
+  --success:       #1a7f37;
+  --success-subtle:#dafbe1;
+  --merged:        #8250df;
+  --merged-subtle: #fbefff;
+  --danger:        #cf222e;
+  --danger-subtle: #ffebe9;
+  --warning:       #9a6700;
+  --warning-subtle:#fff8c5;
+  --btn-primary-bg: #1f883d;
+  --btn-primary-bg-hover: #1a7f37;
+  --btn-primary-fg: #ffffff;
+  --btn-primary-border: rgba(31,35,40,0.15);
+  --shadow-card: 0 1px 0 rgba(27,31,36,0.04);
+
+  --font-ui:   -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  font-family: var(--font-ui);
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
+}
+
+.dark-mode {
+  --canvas:        #0d1117;
+  --canvas-subtle: #161b22;
+  --canvas-inset:  #161b22;
+  --fg:            #e6edf3;
+  --fg-muted:      #7d8590;
+  --border:        #30363d;
+  --border-muted:  #21262d;
+  --border-subtle: #21262d;
+  --accent:        #2f81f7;
+  --accent-hover:  #4493f8;
+  --accent-subtle: #121d2f;
+  --success:       #3fb950;
+  --success-subtle:#0d2818;
+  --merged:        #a371f7;
+  --merged-subtle: #1c1340;
+  --danger:        #f85149;
+  --danger-subtle: #2a0f10;
+  --warning:       #d29922;
+  --warning-subtle:#332600;
+  --btn-primary-bg: #238636;
+  --btn-primary-bg-hover: #2ea043;
+  --btn-primary-border: rgba(63,185,80,0.18);
+  --shadow-card: 0 1px 0 rgba(0,0,0,0.18);
+
+  color-scheme: dark;
+}
+
+/* Map PrimeVue Aura tokens to Primer palette so embedded components blend in */
+:root, .dark-mode {
+  --p-surface-ground: var(--canvas);
+  --p-surface-card: var(--canvas);
+  --p-surface-section: var(--canvas-subtle);
+  --p-surface-overlay: var(--canvas);
+  --p-surface-border: var(--border);
+  --p-surface-hover: var(--canvas-subtle);
+  --p-text-color: var(--fg);
+  --p-text-muted-color: var(--fg-muted);
+  --p-primary-color: var(--accent);
+  --p-primary-contrast-color: #ffffff;
+  --p-highlight-background: var(--accent-subtle);
+  --p-highlight-text-color: var(--accent);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--canvas);
+  color: var(--fg);
+  font-size: 14px;
 }
 
 #app {
   width: 100%;
+  min-height: 100vh;
 }
 
-/* Utility classes */
-.w-full {
-  width: 100%;
-}
+/* Utility */
+.w-full { width: 100%; }
+.mono { font-family: var(--font-mono); }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--p-surface-ground);
-}
-
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--p-surface-border);
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: 6px;
+  border: 2px solid var(--canvas);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+/* Generic Primer-style pills, reused outside Vue scoped styles */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  line-height: 1;
+  font-weight: 500;
+  border: 1px solid var(--border-muted);
+  background: var(--canvas);
+  color: var(--fg-muted);
+}
+.pill.latest {
+  background: var(--success-subtle);
+  color: var(--success);
+  border-color: color-mix(in oklch, var(--success) 30%, transparent);
+}
+.pill.signed {
+  background: var(--merged-subtle);
+  color: var(--merged);
+  border-color: color-mix(in oklch, var(--merged) 25%, transparent);
+}
+.pill.warn {
+  background: var(--warning-subtle);
+  color: var(--warning);
+  border-color: color-mix(in oklch, var(--warning) 30%, transparent);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--p-text-muted-color);
-}
+/* PrimeVue Toast keep on top */
+.p-toast { z-index: 9999; }
