@@ -1,21 +1,6 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <!-- Brand -->
-      <div class="login-brand">
-        <div class="login-logo" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
-            <path d="m12 3 9 4.5L12 12 3 7.5 12 3Z"/>
-            <path d="m3 12 9 4.5L21 12"/>
-            <path d="m3 16.5 9 4.5 9-4.5"/>
-          </svg>
-        </div>
-        <div class="login-wordmark">
-          Registry Lens
-          <small>Connect to your Docker Registry</small>
-        </div>
-      </div>
-
       <!-- Heading -->
       <div class="login-head">
         <h2>Sign in</h2>
@@ -278,39 +263,6 @@ async function handleSubmit() {
 
 @media (min-width: 768px) {
   .login-card { padding: 32px 32px 24px; }
-}
-
-/* Brand */
-.login-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.login-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: var(--accent-subtle);
-  border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.login-wordmark {
-  font: 600 16px/1.15 var(--font-ui);
-  letter-spacing: -0.01em;
-  color: var(--fg);
-}
-
-.login-wordmark small {
-  display: block;
-  font: 400 12px/1.2 var(--font-mono);
-  color: var(--fg-muted);
-  margin-top: 3px;
 }
 
 /* Head */
